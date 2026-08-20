@@ -27,9 +27,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageFile
 from fontTools.ttLib import TTFont, TTLibError
 from tqdm import tqdm
+
+# Enable reading truncated images
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Configure Logging
 logging.basicConfig(

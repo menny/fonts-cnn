@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from PIL import ImageFile
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -42,6 +43,9 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 
 from dataset import create_dataloaders
+
+# Allow loading truncated/partial images without raising OSError in DataLoader workers
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Configure Logging
 logging.basicConfig(

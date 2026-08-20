@@ -28,9 +28,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageFile
 import torch
 from torch.utils.data import DataLoader, Dataset, Subset
+
+# Allow PIL to load truncated/imperfect image files without raising OSError
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Configure Logging
 logging.basicConfig(
@@ -69,7 +72,12 @@ def preprocess_image(
         img_path = Path(image_input)
         if not img_path.exists():
             raise FileNotFoundError(f"Image file not found: {img_path}")
-        img = Image.open(img_path)
+        try:
+            img = Image.open(img_path)
+            img.load()
+        except (OSError, Exception) as e:
+            logging.debug(f"Failed decoding image {img_path}: {e}. Generating blank canvas.")
+            img = Image.new("L", target_size, 255)
     elif isinstance(image_input, np.ndarray):
         img = Image.fromarray(image_input)
     elif isinstance(image_input, Image.Image):
@@ -224,15 +232,20 @@ class FontDataset(Dataset):
         rel_path = self.image_paths[idx]
         full_path = self.root_dir / rel_path
 
-        if self.transform is not None:
-            img = Image.open(full_path).convert("L")
-            image_tensor = self.transform(img)
-        else:
-            image_tensor = preprocess_image(
-                full_path,
-                target_size=self.target_size,
-                normalize_mode=self.normalize_mode,
-            )
+        try:
+            if self.transform is not None:
+                img = Image.open(full_path).convert("L")
+                image_tensor = self.transform(img)
+            else:
+                image_tensor = preprocess_image(
+                    full_path,
+                    target_size=self.target_size,
+                    normalize_mode=self.normalize_mode,
+                )
+        except Exception as e:
+            logging.debug(f"Failed loading sample {full_path}: {e}. Loading fallback sample.")
+            fallback_idx = (idx + 1) % len(self)
+            return self.__getitem__(fallback_idx)
 
         font_label = torch.tensor(self.font_ids[idx], dtype=torch.long)
         style_label = torch.tensor(self.style_ids[idx], dtype=torch.long)
