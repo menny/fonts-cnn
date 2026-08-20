@@ -1,30 +1,36 @@
 # Multi-Head Font & Style Recognition with Deep CNNs
 
-A complete, production-ready deep learning pipeline for synthetic dataset generation, model training, and dual-head font recognition (Font Family & Discrete Style classification) using PyTorch and ONNX Runtime.
+A complete, production-ready deep learning pipeline for synthetic dataset generation, local & system font discovery, model training, and dual-head font recognition (Font Family & Discrete Style classification) using PyTorch and ONNX Runtime.
+
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)]()
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg)]()
+[![ONNX](https://img.shields.io/badge/ONNX-Runtime-blueviolet.svg)]()
 
 ---
 
 ## 📑 Table of Contents
-1. [Overview & System Architecture](#overview--system-architecture)
-2. [Project Structure](#project-structure)
-3. [Installation & Requirements](#installation--requirements)
-4. [Scripts & Workflow](#scripts--workflow)
+1. [Overview & System Architecture](#-overview--system-architecture)
+2. [Project Structure](#-project-structure)
+3. [Installation & Requirements](#-installation--requirements)
+4. [Scripts & Workflow](#-scripts--workflow)
    - [1. `download_google_fonts.py` (Font Downloader)](#1-download_google_fontspy)
-   - [2. `generate_dataset.py` (Synthetic Dataset Generator)](#2-generate_datasetpy)
+   - [2. `generate_dataset_v2.py` (Enhanced Dataset Generator)](#2-generate_dataset_v2py-recommended)
    - [3. `dataset.py` (PyTorch Dataset & Preprocessing Pipeline)](#3-datasetpy)
    - [4. `train.py` (Multi-Head CNN Trainer & ONNX Exporter)](#4-trainpy)
    - [5. `predict.py` (Standalone PyTorch & ONNX Inference)](#5-predictpy)
-5. [End-to-End Pipeline Walkthrough](#end-to-end-pipeline-walkthrough)
-6. [Model Architecture Details](#model-architecture-details)
-7. [Inference & Output Formats](#inference--output-formats)
+5. [Local & System Font Ingestion](#-local--system-font-ingestion)
+6. [Model Architecture Details](#-model-architecture-details)
+7. [Inference & Sample Outputs](#-inference--sample-outputs)
+8. [License](#-license)
 
 ---
 
 ## 🏛 Overview & System Architecture
 
-This repository provides an end-to-end framework for identifying font families and styles from rendered text patches. The architecture uses a multi-task convolutional neural network (`MultiHeadFontCNN`) with shared low/mid-level feature extractors and separate classification heads:
+This repository provides an end-to-end framework for identifying font families and styles from rendered text and number patches. The architecture uses a multi-task convolutional neural network (`MultiHeadFontCNN`) with shared low/mid-level feature extractors and separate classification heads:
 
-```
+```text
                           ┌────────────────────────┐
                           │ Input: (B, 1, 256, 256)│
                           └───────────┬────────────┘
@@ -49,7 +55,7 @@ This repository provides an end-to-end framework for identifying font families a
 ```
 
 ### Discrete Style Classification
-Fonts are parsed and classified into 4 canonical style categories:
+Fonts are parsed from OpenType/TrueType metadata tables (`name`, `OS/2`, `head`) and classified into 4 canonical style categories:
 - `0`: **Regular** (Book, Roman, Medium, Normal)
 - `1`: **Bold** (Black, Heavy, SemiBold, ExtraBold, Weight $\ge 600$)
 - `2`: **Italic** (Oblique, Slanted, Italic)
@@ -59,15 +65,19 @@ Fonts are parsed and classified into 4 canonical style categories:
 
 ## 📂 Project Structure
 
-```
+```text
 .
-├── download_google_fonts.py  # Automated Google Fonts catalog downloader
-├── generate_dataset.py       # High-throughput synthetic image patch generator
-├── dataset.py                # PyTorch Dataset, DataLoaders, and image preprocessor
+├── download_google_fonts.py  # Asynchronous Google Fonts catalog downloader
+├── generate_dataset_v2.py    # Enhanced generator (matrices, dates, local/system fonts)
+├── generate_dataset.py       # Legacy dataset generator
+├── dataset.py                # PyTorch Dataset, DataLoaders, & robust preprocessing
 ├── train.py                  # Multi-task CNN training loop and ONNX exporter
 ├── predict.py                # CLI inference runner supporting .pth & .onnx
-├── downloaded_fonts/         # Raw font repository (.ttf, .otf)
-└── runs/                     # Experiment checkpoints, ONNX graphs & metrics
+├── popular_200_fonts.json    # Catalog filter for top 200 popular Google Fonts
+├── downloaded_fonts/         # Raw font repository (.ttf, .otf) [gitignored]
+├── runs/                     # Checkpoints, ONNX models & metrics [gitignored]
+├── LICENSE                   # Apache 2.0 License
+└── README.md                 # Project technical documentation
 ```
 
 ---
@@ -89,68 +99,59 @@ pip install Pillow fonttools pandas numpy tqdm onnx onnxscript onnxruntime reque
 Downloads font files directly from the Google Fonts repository without needing a full git clone.
 
 ```bash
-# Download all fonts to local directory with 8 parallel download threads
+# Download all fonts to local directory with 8 parallel worker threads
 python3 download_google_fonts.py --output_dir downloaded_fonts --workers 8
 ```
 
 ---
 
-### 2. `generate_dataset.py`
-Generates augmented image patches across diverse text templates (sentences, pangrams, timestamps, dates, and alphanumeric IDs).
+### 2. `generate_dataset_v2.py` (Recommended)
+Generates high-quality synthetic image patches across diverse text templates (pangrams, full multi-line digit matrices `0-9`, realistic expiration dates, timestamps, lot numbers, and financial codes).
 
 **Key Features:**
-- Reads TTF/OTF metadata tables (`name`, `OS/2`, `head`) with `fontTools`.
-- Performs tight bounding box cropping (`ImageOps.invert` + `getbbox()`).
-- Applies uniform aspect-ratio scaling to $256\times 256$.
-- Injects minor augmentations: random 2–8px padding offsets, Gaussian blur ($\sigma \in [0.1, 0.4]$), and subtle threshold dithering.
-- Multiprocessing pool with `tqdm` progress tracking.
+- **Realistic Digit Matrices**: Generates complete multi-line digit grids (`0 1 2 3 4\n5 6 7 8 9`) so the CNN sees full sets of numeric glyphs for each font.
+- **Scale-Clamped Rendering**: Prevents short numbers and single dates from blowing up into oversized $180\text{px}$ glyphs, keeping glyph heights consistent with real-world photos ($28\text{pt} - 42\text{pt}$).
+- **Multiple Font Directories**: Accepts multiple search paths via `--fonts_dirs`.
+- **System Font Auto-Discovery**: Automatically discovers OS fonts across Linux, macOS, and Windows via `--include_system_fonts`.
+- **Catalog Filtering**: Easily filter generation to the top 200 popular fonts via `--popular_json popular_200_fonts.json`.
 
 **Arguments:**
 | Flag | Default | Description |
 |---|---|---|
-| `--fonts_dir` | *Required* | Path to folder containing `.ttf` or `.otf` files. |
-| `--output_dir` | *Required* | Target directory for patches and metadata. |
+| `--fonts_dirs`, `--fonts_dir` | `["downloaded_fonts"]` | One or more folders or file paths to scan for fonts. |
+| `--include_system_fonts` | `False` | Automatically discover and include OS system font directories. |
+| `--popular_json` | `popular_200_fonts.json` | JSON list of target font family names to generate. |
+| `--output_dir` | `dataset_top200_v2` | Target destination for image patches and metadata. |
 | `--image_size` | `256` | Square canvas dimension. |
 | `--samples_per_template` | `5` | Augmentation variations per text template. |
 | `--workers` | `auto` | Number of worker processes. |
-| `--seed` | `42` | Random seed for reproducibility. |
-| `--max_fonts` | `None` | Optional limit on font files (useful for test runs). |
+| `--seed` | `123456` | Random seed for reproducibility. |
 
 **Usage Example:**
 ```bash
-python3 generate_dataset.py \
-  --fonts_dir downloaded_fonts \
-  --output_dir dataset \
-  --image_size 256 \
+python3 generate_dataset_v2.py \
+  --fonts_dirs downloaded_fonts \
+  --popular_json popular_200_fonts.json \
+  --output_dir dataset_top200_v2 \
   --samples_per_template 5 \
-  --workers 4 \
-  --seed 123456
+  --workers 4
 ```
-
-**Generated Artifacts in `--output_dir`:**
-- `dataset_manifest.csv`: Manifest with columns `image_path,font_family,font_id,style_name,style_id`.
-- `font_map.json`: Bidirectional dictionary (`font_to_id` and `id_to_font`).
-- `style_map.json`: Style ID to label mapping (`0: Regular`, `1: Bold`, `2: Italic`, `3: Bold-Italic`).
-- Subdirectories per font family containing `<style>_<hash>.png`.
 
 ---
 
 ### 3. `dataset.py`
-Provides reusable preprocessing routines and PyTorch `FontDataset` / `create_dataloaders` utilities.
+Provides PyTorch `FontDataset`, `create_dataloaders` utilities, and the end-to-end `preprocess_image` pipeline.
 
-**Key Components:**
-- `preprocess_image(image_input, target_size=(256, 256), normalize_mode="inverted")`:
-  - Accepts a file path, PIL Image, or NumPy array.
-  - Converts to 1-channel Grayscale.
-  - Uniformly scales and center-pads with white pixels into target dimensions.
-  - Returns `(1, H, W)` `torch.FloatTensor` with strokes normalized to $1.0$ on $0.0$ background.
-- `FontDataset`: Custom `torch.utils.data.Dataset` returning `(image_tensor, font_id, style_id)`.
-- `create_dataloaders`: Stratifies dataset across `(font_id, style_id)` pairs for balanced validation splits.
+**Robust Preprocessing (`preprocess_image`):**
+- **Any Resolution & Aspect Ratio**: Uniformly scales preserving aspect ratio using high-quality Lanczos resampling and center-pads onto the $256\times 256$ white canvas.
+- **Color Depth & Transparency**: Converts RGB, RGBA, CMYK, and 16-bit images to 1-channel grayscale; alpha transparency is automatically composited onto a pure white background.
+- **Auto-Cropping Surrounding Margins**: Automatically detects text bounding boxes and crops excess white margins.
+- **Dark Mode Detection**: Inverts dark backgrounds with light text into standard black text on white background.
+- **Normalized Output**: Returns a `(1, 256, 256)` float tensor with strokes normalized to $1.0$ on $0.0$ background.
 
-**Standalone Test:**
+**Standalone Preprocessing Test:**
 ```bash
-# Test single image preprocessing and export visualization
-python3 dataset.py --test_image dataset/Actor/Regular_4fc90ecaef11.png --output_debug debug_preprocessed.png
+python3 dataset.py --test_image sample.png --output_debug debug_preprocessed.png
 ```
 
 ---
@@ -177,24 +178,24 @@ $$\mathcal{L}_{\text{total}} = \text{CrossEntropy}(\text{font\_logits}, \text{fo
 **Usage Example:**
 ```bash
 python3 train.py \
-  --manifest_csv dataset/dataset_manifest.csv \
-  --output_dir runs/font_cnn_v1 \
-  --epochs 25 \
+  --manifest_csv dataset_top200_v2/dataset_manifest.csv \
+  --output_dir runs/top200_v2_12ep \
+  --epochs 12 \
   --batch_size 64 \
   --lr 1e-3 \
   --num_workers 4
 ```
 
 **Generated Checkpoints in `--output_dir`:**
-- `best_model.pth`: Checkpoint selected via highest Validation Joint Accuracy.
+- `best_model.pth`: Saved whenever Validation Joint Accuracy improves.
 - `last_model.pth`: Final epoch weights.
-- `model.onnx`: Exported ONNX model graph with dynamic batch size `(batch_size, 1, 256, 256)`.
-- `training_metrics.json`: Per-epoch training & validation history (Top-1, Top-3, Joint Accuracy, and Losses).
+- `model.onnx`: Exported ONNX graph with dynamic batch size `(batch_size, 1, 256, 256)`.
+- `training_metrics.json`: Full epoch history (Top-1, Top-3, Joint Accuracy, and Losses).
 
 ---
 
 ### 5. `predict.py`
-High-speed inference script supporting both PyTorch (`.pth`) and ONNX Runtime (`.onnx`) models.
+Standalone inference script supporting both PyTorch (`.pth`) and ONNX Runtime (`.onnx`) models.
 
 **Arguments:**
 | Flag | Default | Description |
@@ -204,72 +205,87 @@ High-speed inference script supporting both PyTorch (`.pth`) and ONNX Runtime (`
 | `--font_map` | `auto` | Path to `font_map.json`. |
 | `--style_map` | `auto` | Path to `style_map.json`. |
 | `--top_k` | `3` | Number of top font candidate predictions to display. |
-| `--output_json` | `None` | (Optional) Filepath to save predictions in JSON format. |
+| `--output_json` | `None` | Optional path to export predictions to JSON. |
 | `--device` | `auto` | Target inference device (`cpu`, `cuda`, `mps`). |
 
 **Usage Examples:**
 
-#### Single Image Prediction (PyTorch)
+#### Single Image Prediction (PyTorch `.pth`)
 ```bash
 python3 predict.py \
   --image sample.png \
-  --model_path runs/font_cnn_v1/best_model.pth \
-  --font_map dataset/font_map.json \
-  --style_map dataset/style_map.json \
-  --top_k 3
+  --model_path runs/top200_v2_12ep/best_model.pth \
+  --font_map dataset_top200_v2/font_map.json \
+  --style_map dataset_top200_v2/style_map.json \
+  --top_k 5
 ```
 
-#### High-Throughput Inference with ONNX & JSON Export
+#### High-Throughput Batch Inference with ONNX Runtime & JSON Export
 ```bash
 python3 predict.py \
   --image test_images/ \
-  --model_path runs/font_cnn_v1/model.onnx \
-  --font_map dataset/font_map.json \
-  --style_map dataset/style_map.json \
+  --model_path runs/top200_v2_12ep/model.onnx \
+  --font_map dataset_top200_v2/font_map.json \
+  --style_map dataset_top200_v2/style_map.json \
   --top_k 5 \
   --output_json results.json
 ```
 
 ---
 
-## 📊 Sample Inference Output
+## 💻 Local & System Font Ingestion
+
+You can include fonts from your local machine (such as *Times New Roman*, *Arial*, *Calibri*, *Helvetica*, or custom corporate fonts):
+
+### Ingesting Specific Local Directories
+```bash
+python3 generate_dataset_v2.py \
+  --fonts_dirs downloaded_fonts /usr/share/fonts/truetype ~/.local/share/fonts \
+  --output_dir dataset_custom
+```
+
+### Auto-Discovering Standard OS System Fonts
+```bash
+python3 generate_dataset_v2.py \
+  --include_system_fonts \
+  --output_dir dataset_with_system_fonts
+```
+Standard OS directories scanned automatically:
+- **Linux**: `/usr/share/fonts`, `/usr/local/share/fonts`, `~/.fonts`, `~/.local/share/fonts`
+- **macOS**: `/Library/Fonts`, `/System/Library/Fonts`, `~/Library/Fonts`
+- **Windows**: `C:\Windows\Fonts`, `%LOCALAPPDATA%\Microsoft\Windows\Fonts`
+
+---
+
+## 📊 Inference & Sample Outputs
 
 ```text
 ────────────────────────────────────────────────────────────────────────
- 🔍 Target Image : test_images/sample_text.png
+ 🔍 Target Image : sample_receipt_date.png
 ────────────────────────────────────────────────────────────────────────
-  ✦ Primary Font   : Roboto (84.2% confidence)
-  ✦ Inferred Style : Bold (91.6% confidence)
+  ✦ Primary Font   : Alumni Sans SC (48.1% confidence)
+  ✦ Inferred Style : Regular (100.0% confidence)
 ────────────────────────────────────────────────────────────────────────
   TOP FONT CANDIDATES:
   Rank  | Font Family                | ID   | Confidence | Distribution
   ────────────────────────────────────────────────────────────────────
-  #1    | Roboto                     | 142  |  84.2%   | [████████████░░]
-  #2    | Open Sans                  | 88   |   9.1%   | [█░░░░░░░░░░░░░]
-  #3    | Lato                       | 53   |   3.4%   | [░░░░░░░░░░░░░░]
+  #1    | Alumni Sans SC             | 60   |  48.1%   | [███████░░░░░░░]
+  #2    | Alumni Sans Pinstripe      | 59   |  19.6%   | [███░░░░░░░░░░░]
+  #3    | Alumni Sans                | 56   |   3.8%   | [█░░░░░░░░░░░░░]
+  #4    | Abril Fatface              | 6    |   3.4%   | [░░░░░░░░░░░░░░]
+  #5    | Anybody                    | 98   |   3.4%   | [░░░░░░░░░░░░░░]
 
   STYLE PROBABILITY DISTRIBUTION:
-     Regular      :   6.2%  [█░░░░░░░░░░░░░]
-   ★ Bold         :  91.6%  [█████████████░]
-     Italic       :   1.4%  [░░░░░░░░░░░░░░]
-     Bold-Italic  :   0.8%  [░░░░░░░░░░░░░░]
+   ★ Regular      : 100.0%  [██████████████]
+     Bold         :   0.0%  [░░░░░░░░░░░░░░]
+     Italic       :   0.0%  [░░░░░░░░░░░░░░]
+     Bold-Italic  :   0.0%  [░░░░░░░░░░░░░░]
 ────────────────────────────────────────────────────────────────────────
 ```
 
 ---
 
-## ⚡ Complete End-to-End Execution Recipe
+## 📄 License
 
-```bash
-# 1. Download font catalog
-python3 download_google_fonts.py --output_dir downloaded_fonts --workers 8
-
-# 2. Synthesize dataset patches
-python3 generate_dataset.py --fonts_dir downloaded_fonts --output_dir dataset --samples_per_template 5 --workers 4
-
-# 3. Train multi-head classifier & export ONNX
-python3 train.py --manifest_csv dataset/dataset_manifest.csv --output_dir runs/experiment1 --epochs 25 --batch_size 64
-
-# 4. Run inference
-python3 predict.py --image dataset/ABeeZee/Regular_02aa13a2ddfa.png --model_path runs/experiment1/model.onnx --top_k 3
-```
+Licensed under the [Apache License, Version 2.0](LICENSE).  
+Copyright © 2026 Menny Even Danan.
