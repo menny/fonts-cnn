@@ -374,9 +374,11 @@ def get_system_font_directories() -> List[Path]:
         Path("/usr/local/share/fonts"),
         Path(os.path.expanduser("~/.fonts")),
         Path(os.path.expanduser("~/.local/share/fonts")),
-        # macOS
+        # macOS (including Catalina / Sonoma / Sequoia Supplemental directories)
         Path("/Library/Fonts"),
+        Path("/Library/Fonts/Supplemental"),
         Path("/System/Library/Fonts"),
+        Path("/System/Library/Fonts/Supplemental"),
         Path(os.path.expanduser("~/Library/Fonts")),
         # Windows
         Path("C:/Windows/Fonts"),
@@ -393,17 +395,17 @@ def get_system_font_directories() -> List[Path]:
 
 
 def find_font_files(search_paths: List[Path]) -> List[Path]:
-    """Recursively finds all .ttf and .otf font files across one or more directories."""
+    """Recursively finds all .ttf, .otf, and .ttc font files across one or more directories."""
     font_files: List[Path] = []
     for sp in search_paths:
         if not sp.exists():
             logging.warning(f"Font search path does not exist: {sp}")
             continue
-        if sp.is_file() and sp.suffix.lower() in (".ttf", ".otf"):
+        if sp.is_file() and sp.suffix.lower() in (".ttf", ".otf", ".ttc"):
             font_files.append(sp.resolve())
             continue
         if sp.is_dir():
-            for ext in ("*.ttf", "*.otf", "*.TTF", "*.OTF"):
+            for ext in ("*.ttf", "*.otf", "*.ttc", "*.TTF", "*.OTF", "*.TTC"):
                 try:
                     font_files.extend(sp.rglob(ext))
                 except Exception as e:
@@ -430,8 +432,8 @@ def main() -> None:
     parser.add_argument(
         "--popular_json",
         type=str,
-        default="popular_200_fonts.json",
-        help="Path to popular_200_fonts.json (limits generation to top 200 fonts).",
+        default=None,
+        help="Optional path to popular_200_fonts.json (limits generation to specific fonts).",
     )
     parser.add_argument(
         "--output_dir",
