@@ -366,11 +366,48 @@ def process_font_file(
     return records
 
 
-def find_font_files(fonts_dir: Path) -> List[Path]:
-    """Recursively finds all .ttf and .otf font files."""
-    font_files = []
-    for ext in ("*.ttf", "*.otf", "*.TTF", "*.OTF"):
-        font_files.extend(fonts_dir.rglob(ext))
+def get_system_font_directories() -> List[Path]:
+    """Returns accessible standard system font directories for Linux, macOS, and Windows."""
+    candidates = [
+        # Linux
+        Path("/usr/share/fonts"),
+        Path("/usr/local/share/fonts"),
+        Path(os.path.expanduser("~/.fonts")),
+        Path(os.path.expanduser("~/.local/share/fonts")),
+        # macOS
+        Path("/Library/Fonts"),
+        Path("/System/Library/Fonts"),
+        Path(os.path.expanduser("~/Library/Fonts")),
+        # Windows
+        Path("C:/Windows/Fonts"),
+        Path(os.path.expandvars(r"%LOCALAPPDATA%/Microsoft/Windows/Fonts")),
+    ]
+    valid_dirs = []
+    for d in candidates:
+        try:
+            if d.exists() and d.is_dir():
+                valid_dirs.append(d.resolve())
+        except Exception:
+            pass
+    return sorted(list(set(valid_dirs)))
+
+
+def find_font_files(search_paths: List[Path]) -> List[Path]:
+    """Recursively finds all .ttf and .otf font files across one or more directories."""
+    font_files: List[Path] = []
+    for sp in search_paths:
+        if not sp.exists():
+            logging.warning(f"Font search path does not exist: {sp}")
+            continue
+        if sp.is_file() and sp.suffix.lower() in (".ttf", ".otf"):
+            font_files.append(sp.resolve())
+            continue
+        if sp.is_dir():
+            for ext in ("*.ttf", "*.otf", "*.TTF", "*.OTF"):
+                try:
+                    font_files.extend(sp.rglob(ext))
+                except Exception as e:
+                    logging.warning(f"Error scanning directory {sp} for {ext}: {e}")
     return sorted(list(set(font_files)))
 
 
@@ -379,10 +416,16 @@ def main() -> None:
         description="Generate synthetic dataset v2 with realistic number matrices, product dates, and balanced scale."
     )
     parser.add_argument(
+        "--fonts_dirs",
         "--fonts_dir",
-        type=str,
-        default="downloaded_fonts",
-        help="Path to directory containing font files.",
+        nargs="+",
+        default=["downloaded_fonts"],
+        help="One or more directories or file paths containing font files (default: downloaded_fonts).",
+    )
+    parser.add_argument(
+        "--include_system_fonts",
+        action="store_true",
+        help="Automatically scan standard OS system font directories (Linux, macOS, Windows) in addition to fonts_dirs.",
     )
     parser.add_argument(
         "--popular_json",
@@ -423,7 +466,14 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    fonts_dir = Path(args.fonts_dir).resolve()
+    # Collect search directories
+    search_dirs: List[Path] = [Path(d).resolve() for d in args.fonts_dirs]
+    if args.include_system_fonts:
+        sys_dirs = get_system_font_directories()
+        logging.info(f"Discovered {len(sys_dirs)} local system font directories: {[str(d) for d in sys_dirs]}")
+        search_dirs.extend(sys_dirs)
+    search_dirs = sorted(list(set(search_dirs)))
+
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -434,8 +484,8 @@ def main() -> None:
             target_families = set(json.load(f)[:200])
         logging.info(f"Loaded {len(target_families)} target font families from {args.popular_json}")
 
-    logging.info(f"Scanning for font files in: {fonts_dir}")
-    all_font_files = find_font_files(fonts_dir)
+    logging.info(f"Scanning for font files across {len(search_dirs)} location(s): {[str(d) for d in search_dirs]}")
+    all_font_files = find_font_files(search_dirs)
 
     # Filter for target families
     parsed_fonts: List[Tuple[str, str, str, int]] = []
