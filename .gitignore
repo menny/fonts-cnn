@@ -1,0 +1,52 @@
+# ==============================================================================
+# Git Ignore Configuration for Font-CNN
+# ==============================================================================
+
+# Downloaded font files and assets
+downloaded_fonts/
+
+# Generated synthetic datasets and image patches
+dataset/
+dataset_top200/
+dataset_top200_v2/
+test_10_fonts_dataset/
+*.csv
+
+# Test / detection images
+images-to-detect/
+
+# Training runs, model checkpoints, and exports
+runs/
+*.pth
+*.pt
+*.onnx
+*.ckpt
+training_metrics.json
+
+# Temporary / Debug / Scratch images and logs
+debug_*.png
+sample_*.png
+*.log
+
+# Python bytecode and caching
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE, OS, and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
